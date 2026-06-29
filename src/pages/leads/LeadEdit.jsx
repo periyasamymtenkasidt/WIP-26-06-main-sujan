@@ -645,9 +645,6 @@ const LeadEdit = () => {
   const isLost = lead.status?.toLowerCase() === "lost";
   const isOnHold = lead.status?.toLowerCase() === "on hold";
   const isArchLead = resolveServiceTrack(lead) === "Architecture";
-  const hasProposalBeenSent =
-    documents.length > 0 ||
-    ["proposal", "negotiation", "won"].includes(lead?.status?.toLowerCase());
 
   return (
     <div className="bg-overallbg p-6 font-sans h-full flex flex-col overflow-y-auto lg:overflow-hidden scroll-hidden-bar">

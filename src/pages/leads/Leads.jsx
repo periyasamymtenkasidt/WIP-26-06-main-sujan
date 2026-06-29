@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useCallback, useState, useEffect } from "react";
 import { FiPlusCircle, FiAlertTriangle } from "react-icons/fi";
 import { TableData } from "../../data/TableData";
 import NewInquiriesform from "./NewInquiriesform";
@@ -92,7 +92,7 @@ const Leads = () => {
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setLoading(true);
     try {
       const result = await fetchTabData(activeMainTab, activeSubTab);
@@ -102,7 +102,7 @@ const Leads = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [activeMainTab, activeSubTab]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -130,7 +130,7 @@ const Leads = () => {
     };
     window.addEventListener("focus", handleFocus);
     return () => window.removeEventListener("focus", handleFocus);
-  }, [activeMainTab, activeSubTab]);
+  }, [loadData]);
 
   // Listen for custom events dispatched from the profile page
   useEffect(() => {
@@ -140,7 +140,7 @@ const Leads = () => {
     window.addEventListener("leadDataChanged", handleLeadUpdate);
     return () =>
       window.removeEventListener("leadDataChanged", handleLeadUpdate);
-  }, [activeMainTab, activeSubTab]);
+  }, [loadData]);
 
   // When a new lead is added, POST to API then re-fetch the current tab
   // AFTER

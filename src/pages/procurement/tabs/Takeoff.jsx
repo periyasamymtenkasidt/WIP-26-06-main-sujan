@@ -3,6 +3,7 @@ import { FileBox, ArrowRight, Send } from "lucide-react";
 import { listBoqs, getBoq } from "../../../data/boqStorage";
 import { buildTakeoffFromBoq } from "../../../data/procurementStorage";
 import { getContractByClient } from "../../../data/contractStorage";
+import { formatAmount } from "../../../utils/formatAmount";
 import PoFormModal from "../PoFormModal";
 import RfqFormModal from "../RfqFormModal";
 
@@ -11,10 +12,24 @@ import RfqFormModal from "../RfqFormModal";
 // which specific materials they actually want to source right now (not every
 // material has to move at once), then push only those into an RFQ or PO.
 
-const takeoffKey = (t) => `${t.materialId || ""}|${t.name}|${t.spec || ""}`;
+const takeoffKey = (t) =>
+  `${t.materialId || ""}|${t.name}|${t.spec || ""}|${t.unit || ""}`;
+const formatQty = (qty) =>
+  (Number(qty) || 0).toLocaleString("en-IN", {
+    maximumFractionDigits: 2,
+  });
+const poQty = (qty) => {
+  const next = Number(qty) || 0;
+  return next > 0 ? Number(next.toFixed(2)) : 1;
+};
+const isIssuedForProcurement = (boq) =>
+  (boq?.status === "procurement" ||
+    boq?.status === "issued_for_procurement" ||
+    !!boq?.procurementIssued) &&
+  !!boq?.contractId;
 
 const Takeoff = () => {
-  const boqs = listBoqs();
+  const boqs = useMemo(() => listBoqs().filter(isIssuedForProcurement), []);
   const [boqId, setBoqId] = useState(boqs[0]?.id || "");
   const [modal, setModal] = useState(false);
   const [rfqModal, setRfqModal] = useState(false);
@@ -25,11 +40,17 @@ const Takeoff = () => {
   const [deselected, setDeselected] = useState(() => new Set());
   const [seededForBoq, setSeededForBoq] = useState(boqId);
 
-  const boq = useMemo(() => (boqId ? getBoq(boqId) : null), [boqId]);
+  const effectiveBoqId = boqs.some((b) => b.id === boqId)
+    ? boqId
+    : boqs[0]?.id || "";
+  const boq = useMemo(
+    () => (effectiveBoqId ? getBoq(effectiveBoqId) : null),
+    [effectiveBoqId],
+  );
   const takeoff = useMemo(() => (boq ? buildTakeoffFromBoq(boq) : []), [boq]);
 
-  if (boqId !== seededForBoq) {
-    setSeededForBoq(boqId);
+  if (effectiveBoqId !== seededForBoq) {
+    setSeededForBoq(effectiveBoqId);
     setDeselected(new Set());
   }
 
@@ -57,17 +78,18 @@ const Takeoff = () => {
   const poLines = selectedTakeoff.map((t) => ({
     name: t.name,
     spec: t.spec,
-    qty: Math.round(t.estimatedQty) || 1,
+    qty: poQty(t.estimatedQty),
     unit: t.unit,
-    rate: 0,
+    rate: Number(t.rate) || 0,
     materialId: t.materialId,
   }));
 
   const rfqLines = selectedTakeoff.map((t) => ({
     name: t.name,
     spec: t.spec,
-    qty: Math.round(t.estimatedQty) || 1,
+    qty: poQty(t.estimatedQty),
     unit: t.unit,
+    rate: Number(t.rate) || 0,
     materialId: t.materialId,
   }));
 
@@ -77,11 +99,11 @@ const Takeoff = () => {
         <label className="text-[12px] font-semibold text-text-muted flex items-center gap-2">
           BOQ
           <select
-            value={boqId}
+            value={effectiveBoqId}
             onChange={(e) => setBoqId(e.target.value)}
             className="border border-bordergray rounded-lg px-3 py-2 text-[13px] text-textcolor bg-white"
           >
-            <option value="">Select a BOQ…</option>
+            <option value="">Select an issued BOQ...</option>
             {boqs.map((b) => (
               <option key={b.id} value={b.id}>
                 {b.id} · {b.title} {b.clientName ? `· ${b.clientName}` : ""}
@@ -112,10 +134,15 @@ const Takeoff = () => {
         )}
       </div>
 
-      {!boq ? (
+      {boqs.length === 0 ? (
         <div className="text-center py-12 text-text-subtle">
           <FileBox size={24} className="mx-auto mb-2 opacity-50" />
-          Select a BOQ to see its material take-off.
+          Issue a signed BOQ for procurement before creating material take-off.
+        </div>
+      ) : !boq ? (
+        <div className="text-center py-12 text-text-subtle">
+          <FileBox size={24} className="mx-auto mb-2 opacity-50" />
+          Select an issued BOQ to see its material take-off.
         </div>
       ) : takeoff.length === 0 ? (
         <div className="text-center py-12 text-text-subtle">
@@ -137,8 +164,10 @@ const Takeoff = () => {
                 </th>
                 <th className="text-left font-bold px-4 py-3">Material</th>
                 <th className="text-left font-bold px-4 py-3">Spec</th>
-                <th className="text-right font-bold px-4 py-3">Est. Qty</th>
+                <th className="text-right font-bold px-4 py-3">Takeoff Qty</th>
                 <th className="text-left font-bold px-4 py-3">Unit</th>
+                <th className="text-right font-bold px-4 py-3">Rate</th>
+                <th className="text-right font-bold px-4 py-3">Takeoff Value</th>
                 <th className="text-left font-bold px-4 py-3">Used in</th>
               </tr>
             </thead>
@@ -164,9 +193,17 @@ const Takeoff = () => {
                     </td>
                     <td className="px-4 py-3 text-text-muted">{t.spec || "—"}</td>
                     <td className="px-4 py-3 text-right text-textcolor">
-                      {Math.round(t.estimatedQty).toLocaleString("en-IN")}
+                      {formatQty(t.estimatedQty)}
                     </td>
                     <td className="px-4 py-3 text-text-muted">{t.unit}</td>
+                    <td className="px-4 py-3 text-right tabular-nums text-text-muted">
+                      {Number(t.rate) > 0 ? formatAmount(t.rate) : "-"}
+                    </td>
+                    <td className="px-4 py-3 text-right tabular-nums text-textcolor">
+                      {Number(t.estimatedAmount) > 0
+                        ? formatAmount(t.estimatedAmount)
+                        : "-"}
+                    </td>
                     <td className="px-4 py-3 text-text-muted">
                       {t.usedIn.join(", ") || "—"}
                     </td>

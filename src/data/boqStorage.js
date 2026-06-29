@@ -21,7 +21,7 @@ const genShortId = () =>
 
 // ── Compute helpers ───────────────────────────────────────────────────────
 
-// Units that use dimensional measurement (L × W × Nos for area, L × Nos for length).
+// Units that use dimensional measurement (L for length, L x B/H for area).
 // Items with these units can use the inline "measurement sheet" calculator.
 export const DIMENSIONAL_UNITS = {
   sqft: { kind: "area", suffix: "ft" },
@@ -33,20 +33,19 @@ export const DIMENSIONAL_UNITS = {
 export const computeQtyFromDimensions = (dim, unit) => {
   if (!dim || !dim.enabled) return null;
   const info = DIMENSIONAL_UNITS[unit];
-  const nos = Number(dim.nos) || 1;
   const L = Number(dim.length) || 0;
   // Back-compat: older items used `width` instead of `breadth`.
   const B = Number(dim.breadth ?? dim.width) || 0;
   const H = Number(dim.height) || 0;
 
   if (info?.kind === "length") {
-    return L * nos;
+    return L;
   }
   // Area / volume: multiply only the dimensions the user actually filled in.
   // Empty / zero = "not applicable" (skipped, not treated as 0).
   const factors = [L, B, H].filter((v) => v > 0);
   if (factors.length === 0) return 0;
-  return factors.reduce((p, v) => p * v, 1) * nos;
+  return factors.reduce((p, v) => p * v, 1);
 };
 
 export const computeItemQty = (item) => {
@@ -96,17 +95,16 @@ export const computeBoqTotals = (boq) => {
       : Number(bd.value) || 0;
   const afterBoqDiscount = Math.max(0, taxable - boqDiscountAmt);
 
-  // Labour and contingency are markups on the discounted taxable base — both
-  // are part of the taxable supply, so GST below covers them too, not just
-  // the material cost.
-  const laborPercent = Number(boq.laborPercent) || 0;
+  // Item Master rates already include labour in the item rate build-up. Only
+  // BOQ-level contingency remains here to avoid double-counting labour.
+  const laborPercent = 0;
   const contingencyPercent = Number(boq.contingencyPercent) || 0;
-  const laborAmt = (afterBoqDiscount * laborPercent) / 100;
+  const laborAmt = 0;
   const contingencyAmt = (afterBoqDiscount * contingencyPercent) / 100;
   const baseForGst = afterBoqDiscount + laborAmt + contingencyAmt;
 
   // Re-apportion GST proportional to the final taxable base (post-discount,
-  // post-labour, post-contingency). Cleaner than recomputing per item — keeps
+  // post-contingency). Cleaner than recomputing per item — keeps
   // the rate breakdown intact while honouring every BOQ-level markup.
   const scale = taxable > 0 ? baseForGst / taxable : 0;
   const scaledGstByRate = {};
@@ -313,7 +311,13 @@ export const validateBoqForSend = (boq) => {
 // ── CRUD ──────────────────────────────────────────────────────────────────
 export const listBoqs = () => {
   try {
-    return JSON.parse(localStorage.getItem(INDEX_KEY) || "[]");
+    const list = JSON.parse(localStorage.getItem(INDEX_KEY) || "[]");
+    return list.map((b) => {
+      if (b.status === "procurement") {
+        return { ...b, status: "issued_for_procurement" };
+      }
+      return b;
+    });
   } catch {
     return [];
   }
@@ -350,7 +354,12 @@ export const getBoq = (id) => {
   if (!id) return null;
   try {
     const raw = localStorage.getItem(ITEM_KEY(id));
-    return raw ? migrateSectionCategory(JSON.parse(raw)) : null;
+    if (!raw) return null;
+    const parsed = migrateSectionCategory(JSON.parse(raw));
+    if (parsed.status === "procurement") {
+      parsed.status = "issued_for_procurement";
+    }
+    return parsed;
   } catch {
     return null;
   }
@@ -373,6 +382,9 @@ export const saveBoq = (boq) => {
     parentType: next.parentType,
     parentId: next.parentId,
     clientName: next.client?.name || "",
+    procurementIssued: !!next.procurement?.issued,
+    procurementIssuedAt: next.procurement?.issuedAt || "",
+    contractId: next.procurement?.contractId || "",
     grandTotal: totals.grandTotal,
     itemCount: (next.sections || []).reduce(
       (s, sec) => s + (sec.items?.length || 0),
@@ -403,6 +415,32 @@ export const duplicateBoq = (id) => {
     title: `${src.title || "Untitled BOQ"} (Copy)`,
     status: "draft",
     revision: 1,
+    orgSnapshot: null,
+    approval: {
+      preparedBy: "",
+      reviewedBy: "",
+      approvedBy: "",
+      clientAcceptedBy: "",
+      preparedAt: "",
+      sentAt: "",
+      reviewedAt: "",
+      approvedAt: "",
+      clientAcceptedAt: "",
+      checklist: {
+        measurementsChecked: false,
+        ratesChecked: false,
+        taxChecked: false,
+        termsChecked: false,
+      },
+      remarks: "",
+    },
+    auditTrail: [],
+    procurement: {
+      issued: false,
+      issuedAt: "",
+      issuedBy: "",
+      contractId: "",
+    },
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
@@ -429,7 +467,7 @@ export const blankItem = () => ({
   rate: 0,
   gstPercent: 18,
   discount: { type: "percent", value: 0 },
-  dimensions: { enabled: false, length: 0, breadth: 0, height: 0, nos: 1 },
+  dimensions: { enabled: false, length: 0, breadth: 0, height: 0 },
   materials: [],
 });
 
@@ -494,10 +532,8 @@ export const createBoq = ({
     // BOQ = cost; quote = cost × (1 + margin). Persisted so the spread (gross
     // margin) is never lost (Rail 💰). See computeQuoteFromBoq.
     marginPercent: 0,
-    // Both are % markups on the post-discount taxable base — see
-    // computeBoqTotals. Standard line items in a professional interior BOQ,
-    // separate from the per-item material rate.
-    laborPercent: 0,
+    // Optional BOQ-level contingency on the post-discount taxable base. Labour
+    // lives inside Item Master rates, so it is not added again at BOQ level.
     contingencyPercent: 0,
     // Standard 5-stage milestone schedule shared across the org
     // (see src/data/MilestoneConfig.js). Users can still tweak per BOQ.
@@ -511,6 +547,31 @@ export const createBoq = ({
     notes: "",
     inclusions: [],
     exclusions: [],
+    approval: {
+      preparedBy: "",
+      reviewedBy: "",
+      approvedBy: "",
+      clientAcceptedBy: "",
+      preparedAt: "",
+      sentAt: "",
+      reviewedAt: "",
+      approvedAt: "",
+      clientAcceptedAt: "",
+      checklist: {
+        measurementsChecked: false,
+        ratesChecked: false,
+        taxChecked: false,
+        termsChecked: false,
+      },
+      remarks: "",
+    },
+    auditTrail: [],
+    procurement: {
+      issued: false,
+      issuedAt: "",
+      issuedBy: "",
+      contractId: "",
+    },
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
@@ -523,7 +584,7 @@ export const createBoq = ({
 export const computeQuoteFromBoq = (boq) => {
   const totals = computeBoqTotals(boq);
   const marginPercent = Number(boq?.marginPercent) || 0;
-  const cost = totals.baseForGst; // ex-GST internal cost, incl. labour + contingency
+  const cost = totals.baseForGst; // ex-GST internal cost, incl. contingency
   const price = cost * (1 + marginPercent / 100); // ex-GST client price
   return {
     ...totals,

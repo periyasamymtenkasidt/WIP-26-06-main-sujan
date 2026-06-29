@@ -138,6 +138,24 @@ const stamp = () => {
   )}:${p(d.getMinutes())}`;
 };
 
+const createBoqAuditEntry = ({
+  boq,
+  action,
+  label,
+  actor,
+  details = "",
+  at = new Date().toISOString(),
+}) => ({
+  id: genShortId(),
+  action,
+  label,
+  actor: actor || "System",
+  details,
+  at,
+  status: boq?.status || "draft",
+  revision: boq?.revision || 1,
+});
+
 export const getDesignFlow = (siteID) => readJson(designFlowKey(siteID), null);
 
 export const isDesignStarted = (siteID) => !!getDesignFlow(siteID);
@@ -529,6 +547,37 @@ export const generateStageBoq = (siteID) => {
     // A regenerated survey bill always returns to commercial review. Preserve
     // the record ID, but never leave revised quantities marked as approved.
     if (targetBoq.status && targetBoq.status !== "draft") {
+      const now = new Date().toISOString();
+      const previousRevision = Number(targetBoq.revision) || 1;
+      const previousStatus = targetBoq.status;
+      targetBoq.revisedFrom = {
+        status: previousStatus,
+        revision: previousRevision,
+        at: now,
+        approval: targetBoq.approval || null,
+        procurement: targetBoq.procurement || null,
+      };
+      targetBoq.revisionHistory = [
+        ...(targetBoq.revisionHistory || []),
+        {
+          revision: previousRevision,
+          status: previousStatus,
+          at: now,
+          sections: JSON.parse(JSON.stringify(targetBoq.sections || [])),
+          approval: targetBoq.approval || null,
+        },
+      ];
+      targetBoq.auditTrail = [
+        ...(targetBoq.auditTrail || []),
+        createBoqAuditEntry({
+          boq: targetBoq,
+          action: "survey_regenerated_revision",
+          label: "Survey Regenerated Revision",
+          actor: "Design Flow",
+          details: `Revision ${previousRevision + 1} opened from ${previousStatus} after survey regeneration.`,
+          at: now,
+        }),
+      ];
       targetBoq.revision = (Number(targetBoq.revision) || 1) + 1;
     }
     targetBoq.status = "draft";

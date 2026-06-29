@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import {
   FiArrowLeft,
@@ -26,7 +26,7 @@ import {
 import { FaWhatsapp } from "react-icons/fa6";
 
 import { ClientTableData } from "../../data/ClientTableData";
-import { getOrSeedSchedule, saveSchedule } from "../../data/scheduleStorage";
+import { getOrSeedSchedule } from "../../data/scheduleStorage";
 import { PAYMENT_MILESTONES } from "../../data/MilestoneConfig";
 import EditClientForm from "./EditClientForm";
 import QuoteModal from "../../components/QuoteModal";
@@ -144,8 +144,6 @@ const ClientProfile = () => {
     }
   });
 
-  const [associatedLead, setAssociatedLead] = useState(null);
-
   const [revisionSettings, setRevisionSettings] = useState(() => {
     const saved = localStorage.getItem(`client_portal_settings_${id}`);
     if (saved) return JSON.parse(saved);
@@ -159,19 +157,28 @@ const ClientProfile = () => {
     };
   });
 
+  const associatedLead = useMemo(() => {
+    if (!client) return null;
+    try {
+      const savedLeads = localStorage.getItem("newLeadsData");
+      const leadsList = savedLeads ? JSON.parse(savedLeads) : [];
+      return (
+        leadsList.find(
+          (l) =>
+            l.proposalId === client.sourceLeadId ||
+            l.convertedClientID === client.clientID,
+        ) || null
+      );
+    } catch (e) {
+      console.error("Failed to parse associated lead data", e);
+      return null;
+    }
+  }, [client]);
+
   useEffect(() => {
     if (!client) return;
-    const savedLeads = localStorage.getItem("newLeadsData");
-    const leadsList = savedLeads ? JSON.parse(savedLeads) : [];
-    const foundLead = leadsList.find(
-      (l) =>
-        l.proposalId === client.sourceLeadId ||
-        l.convertedClientID === client.clientID
-    ) || null;
-    setAssociatedLead(foundLead);
-
     // Seed schedule in background for consistency
-    const seedLead = foundLead || {
+    const seedLead = associatedLead || {
       proposalId: client.sourceLeadId || client.clientID,
       quotePreset: client.quotePreset || "2BHK",
       propertyType: client.propertyType || client.location || "Apartment",
@@ -179,7 +186,7 @@ const ClientProfile = () => {
       clientName: client.clientName,
     };
     getOrSeedSchedule(seedLead);
-  }, [client]);
+  }, [associatedLead, client]);
 
 
   const handleDelete = () => {
@@ -279,17 +286,6 @@ const ClientProfile = () => {
 
   // Canonical projects delivery steps (matching LeadStatusConfig.js)
   const steps = ["ADVANCE", "STAGEWISE A", "STAGEWISE B", "REMAINING"];
-  const highestPaidId = milestones
-    ? milestones
-        .filter((m) => m.status === "paid")
-        .reduce((max, m) => (m.id > max ? m.id : max), 0)
-    : 0;
-  const stepperIdx =
-    client.paymentStatus === "completed"
-      ? 3
-      : highestPaidId > 0
-        ? highestPaidId - 1
-        : -1;
 
   // Communication logs feed matching ProjectDetail.jsx 1:1
   const activityLogs = [
@@ -835,4 +831,3 @@ const ClientProfile = () => {
 };
 
 export default ClientProfile;
-

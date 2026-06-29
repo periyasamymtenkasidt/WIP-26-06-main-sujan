@@ -177,6 +177,9 @@ const RateBuildupModal = ({ item, onSave, onClose }) => {
         consumptionFormula: `Q * ${Number(factor.toFixed(4))}`,
         rate: mat ? Number(mat.rate) || 0 : Number(c.rate) || 0,
         unit: mat?.unit || c.unit || "",
+        qty: Number(c.qty) || 0,
+        wastagePct: Number(c.wastagePct) || 0,
+        consumptionMode: "per_unit",
       };
     });
 

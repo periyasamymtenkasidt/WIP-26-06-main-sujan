@@ -32,10 +32,25 @@ const STATUS_STYLES = {
     text: "text-amber-700",
     border: "border-amber-200",
   },
+  issued_for_tender: {
+    bg: "bg-amber-100",
+    text: "text-amber-700",
+    border: "border-amber-200",
+  },
   signed: {
     bg: "bg-purple-100",
     text: "text-purple-700",
     border: "border-purple-200",
+  },
+  issued_for_procurement: {
+    bg: "bg-indigo-100",
+    text: "text-indigo-700",
+    border: "border-indigo-200",
+  },
+  procurement: {
+    bg: "bg-indigo-100",
+    text: "text-indigo-700",
+    border: "border-indigo-200",
   },
 };
 
@@ -104,9 +119,19 @@ const BOQList = () => {
     },
     { value: "approved", label: "Approved", count: stats.approved },
     {
+      value: "issued_for_tender",
+      label: "Tender",
+      count: items.filter((b) => b.status === "issued_for_tender").length,
+    },
+    {
       value: "signed",
       label: "Signed",
       count: items.filter((b) => b.status === "signed").length,
+    },
+    {
+      value: "issued_for_procurement",
+      label: "Procurement",
+      count: items.filter((b) => b.status === "issued_for_procurement" || b.status === "procurement").length,
     },
   ];
 
@@ -260,7 +285,7 @@ const BOQList = () => {
                         <span
                           className={`inline-block text-[9.5px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-md border ${s.bg} ${s.text} ${s.border}`}
                         >
-                          {b.status}
+                          {b.status.replace(/_/g, " ")}
                         </span>
                       </td>
                       <td className="px-4 py-3">

@@ -125,6 +125,7 @@ export const recipeToMaterials = (recipe, materialLookup = {}) =>
       rate: line.rate,
       qty: line.qty,
       wastagePct: line.wastagePct,
+      consumptionMode: "per_unit",
       hsn: material?.hsn || "",
       gstPercent: Number(material?.gstPercent) || 0,
     };
